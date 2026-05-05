@@ -1,0 +1,51 @@
+name: Vulnerable Windows 7 ISO Lab
+on:
+  workflow_dispatch:
+    inputs:
+      iso_url:
+        description: 'Direct download URL for the Windows 7 ISO'
+        required: true
+        type: string
+
+jobs:
+  run-lab:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install QEMU and Cloudflared
+        run: |
+          
+          sudo apt-get install -y qemu-system-x86
+          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-fips-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Download Windows ISO
+        run: |
+          # Use the URL provided in the manual trigger
+          curl -L -o win7.iso "${{ github.event.inputs.iso_url }}"
+
+      - name: Create Virtual Disk
+        run: qemu-img create -f qcow2 win7_disk.qcow2 20G
+
+      - name: Start QEMU VM
+        run: |
+          # Booting from ISO (-cdrom) and assigning a disk (-hda)
+          qemu-system-x86_64 \
+            -m 2048 \
+            -cdrom win7.iso \
+            -hda win7_disk.qcow2 \
+            -boot d \
+            -net nic -net user,hostfwd=tcp::445-:445,hostfwd=tcp::3389-:3389 \
+            -nographic &
+          sleep 30
+
+      - name: Start Cloudflare Tunnel
+        run: |
+          # The --url flag starts an ephemeral 'Quick Tunnel' without an account
+          # Port 445 (SMB) is exposed for EternalBlue testing
+          cloudflared tunnel --url tcp://localhost:445 &
+          
+          # Optional: Expose RDP for remote access
+          # cloudflared tunnel --url tcp://localhost:3389 &
+          
+          sleep 10
+          echo "Check the logs above for your temporary trycloudflare.com URL"
