@@ -11,41 +11,47 @@ jobs:
   run-lab:
     runs-on: ubuntu-latest
     steps:
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          # This reclaims space by removing large pre-installed tools
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Install QEMU and Cloudflared
         run: |
-          
+          sudo apt-get update
           sudo apt-get install -y qemu-system-x86
-          curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-fips-linux-amd64.deb
+          # Specific cloudflared version requested
+          curl -L -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/download/2026.3.0/cloudflared-fips-linux-amd64.deb
           sudo dpkg -i cloudflared.deb
 
       - name: Download Windows ISO
         run: |
-          # Use the URL provided in the manual trigger
+          # Use provided URL
           curl -L -o win7.iso "${{ github.event.inputs.iso_url }}"
 
       - name: Create Virtual Disk
+        # Creating a sparse qcow2 disk to save space initially
         run: qemu-img create -f qcow2 win7_disk.qcow2 20G
 
       - name: Start QEMU VM
         run: |
-          # Booting from ISO (-cdrom) and assigning a disk (-hda)
           qemu-system-x86_64 \
             -m 2048 \
             -cdrom win7.iso \
             -hda win7_disk.qcow2 \
             -boot d \
-            -net nic -net user,hostfwd=tcp::445-:445,hostfwd=tcp::3389-:3389 \
+            -net nic -net user,hostfwd=tcp::445-:445 \
             -nographic &
-          sleep 30
+          sleep 60
 
-      - name: Start Cloudflare Tunnel
+      - name: Start Cloudflare Tunnel (Quick Tunnel)
         run: |
-          # The --url flag starts an ephemeral 'Quick Tunnel' without an account
-          # Port 445 (SMB) is exposed for EternalBlue testing
-          cloudflared tunnel --url tcp://localhost:445 &
-          
-          # Optional: Expose RDP for remote access
-          # cloudflared tunnel --url tcp://localhost:3389 &
-          
-          sleep 10
-          echo "Check the logs above for your temporary trycloudflare.com URL"
+          # Exposes the SMB port 445 via an ephemeral public URL
+          # No signup or login required for this "Quick Tunnel"
+          cloudflared tunnel --url tcp://localhost:445
